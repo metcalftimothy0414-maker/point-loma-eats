@@ -33,6 +33,15 @@ create function current_pricing_settings() returns pricing_settings as $$
   limit 1;
 $$ language sql stable security definer set search_path = public;
 
+-- Postgres grants EXECUTE on new functions to PUBLIC by default. Left as-is,
+-- anon/authenticated could call this directly via RPC and read markup_pct
+-- straight out from under the table-level RLS deny above. The trigger
+-- functions below that also touch pricing don't need this revoke — Postgres
+-- only checks EXECUTE for direct calls, not for a function's internal use as
+-- a trigger, and their return type is "trigger" so they can't be called
+-- directly anyway.
+revoke execute on function current_pricing_settings() from public;
+
 -- restaurants / menu -------------------------------------------------------
 -- Minimal shell: enough to hang a menu and an order off of. Hours, images,
 -- modifiers, POS integration etc. are Phase 3.
