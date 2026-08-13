@@ -4,10 +4,17 @@ Food delivery for Navy personnel around Naval Base Point Loma who don't have a
 car: off-base restaurant → approved on-base delivery point, brought by the
 founder (sole courier for V1).
 
-## Status: Phase 1 — project setup, database, auth, basic navigation
+## Status: Phase 2 — installations/zones/points, pricing engine
 
-Nothing past sign-up/sign-in exists yet. No restaurants, no orders, no
-payments. See `mobile/app` for the current screens.
+Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
+points exist as browsable/admin-managed catalog data. Pricing is markup-based
+(`pricing_settings`: `markup_pct`/`minimum_subtotal`/`on_demand_markup_pct`,
+versioned by `effective_from`) rather than the flat delivery-fee model in the
+original brief — that's a deliberate pivot, not drift. A minimal
+`restaurants`/`menu_categories`/`menu_items` and `orders` shell exists only so
+the pricing columns have somewhere real to attach; there's no menu UI, cart,
+checkout, payments, or order state machine yet (Phases 3–4). No mobile screens
+consume any of this yet — it's schema only so far.
 
 ## Structure
 
@@ -24,8 +31,9 @@ scaffolded yet, no need to carry empty folders for them.
 1. Create a Supabase project.
 2. `cd mobile && cp .env.example .env` and fill in your project's URL + anon
    key (Project Settings → API).
-3. Apply `supabase/migrations/0001_init.sql` via the Supabase SQL editor, or
-   `supabase db push` if you've linked the project with the Supabase CLI.
+3. Apply the migrations in `supabase/migrations/` in order (0001, 0002, 0003)
+   via the Supabase SQL editor, or `supabase db push` if you've linked the
+   project with the Supabase CLI.
 4. `cd mobile && npm install && npm run ios` (or `android`).
 
 ## After you (the founder) sign up
@@ -41,9 +49,9 @@ insert into couriers (id) values ('<your-auth-user-id>');
 
 ## Roadmap
 
-Phase 2: installations, delivery zones, delivery points.
-Phase 3: restaurants, menus, cart.
-Phase 4: checkout, Stripe payments, orders.
+Phase 3: real restaurant/menu management + browsing UI, cart.
+Phase 4: checkout, Stripe payments, real order state machine (the current
+`orders` table is a placeholder shell, not the full 17-state machine).
 Phase 5: founder courier dashboard, delivery workflow.
 Phase 6: order tracking, notifications.
 Phase 7: admin dashboard (Next.js).
