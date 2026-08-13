@@ -35,6 +35,9 @@ export interface AdapterResult {
   confidence: number;
 }
 
+/** Every file in adapters/ exports a `run` matching this shape. */
+export type AdapterRun = (url: string) => Promise<AdapterResult>;
+
 // --- normalize.ts output: shaped to match our schema columns directly ------
 
 export interface NormalizedMenuItem {
