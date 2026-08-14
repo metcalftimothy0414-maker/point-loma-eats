@@ -21,12 +21,19 @@ Deno. See `../../ARCHITECTURE.md` for the checkout flow these are part of.
   using whichever `profiles.expo_push_token` applies. Most calls to this
   function intentionally do nothing (most statuses aren't customer/courier
   notify-worthy).
+- `refund-payment/` — admin-only (called from `admin/`'s server actions
+  with a shared secret, never by a customer/courier client). Issues a real
+  Stripe refund against the order's most recent succeeded payment, records
+  `payments.refunded_amount`, and drives the order through
+  `REFUND_PENDING -> REFUNDED`. Stripe's own API is the guard against
+  double-refunding or refunding more than was charged — not re-validated
+  here.
 
 ## Deploy
 
 ```
-supabase functions deploy create-payment-intent stripe-webhook send-order-notification
-supabase secrets set STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_SECRET=whsec_... NOTIFICATION_TRIGGER_SECRET=...
+supabase functions deploy create-payment-intent stripe-webhook send-order-notification refund-payment
+supabase secrets set STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_SECRET=whsec_... NOTIFICATION_TRIGGER_SECRET=... ADMIN_ACTION_SECRET=...
 ```
 
 `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` are injected
