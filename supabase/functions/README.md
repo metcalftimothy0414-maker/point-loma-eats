@@ -48,14 +48,24 @@ Point a Stripe webhook (Dashboard → Developers → Webhooks) at the deployed
 `stripe-webhook` function URL, subscribed to `payment_intent.succeeded` and
 `payment_intent.payment_failed`.
 
-After deploying `send-order-notification`, point the DB trigger at it —
-neither of these is set by the migration itself, since the function has no
-URL until it's deployed:
+After deploying `send-order-notification`, point the DB trigger at it by
+inserting into `app_config` (`0012_trigger_config_table.sql`) — not set by
+any migration itself, since the function has no URL until it's deployed.
+`alter database ... set app.settings.*` doesn't work on Supabase (blocked
+with `permission denied to set parameter` even for the `postgres` role,
+confirmed against a real project) — `app_config` (RLS-locked to
+`service_role`/`SECURITY DEFINER` functions only, same pattern as
+`pricing_settings`) is what `notify_order_status_change()` and
+`run_menu_sync_trigger()` actually read:
 
 ```sql
-alter database postgres set app.settings.notification_trigger_url = 'https://<project-ref>.supabase.co/functions/v1/send-order-notification';
-alter database postgres set app.settings.notification_trigger_secret = '<same value as NOTIFICATION_TRIGGER_SECRET>';
+insert into app_config (key, value) values
+  ('notification_trigger_url', 'https://<project-ref>.supabase.co/functions/v1/send-order-notification'),
+  ('notification_trigger_secret', '<same value as NOTIFICATION_TRIGGER_SECRET>');
 ```
+
+Same table, same pattern, for menu-sync once it has a deployed URL:
+`menu_sync_trigger_url` / `menu_sync_trigger_secret`.
 
 ## Local dev
 

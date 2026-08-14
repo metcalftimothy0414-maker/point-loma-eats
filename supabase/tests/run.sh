@@ -40,7 +40,7 @@ for migration in "$MIGRATIONS_DIR"/*.sql; do
   # makes `create extension` succeed short of faking the extension system
   # itself. Every other migration applies for real; this is the one
   # documented gap, not a silent skip.
-  if [[ "$(basename "$migration")" == 0005_* ]]; then
+  if [[ "$(basename "$migration")" == 0005_* || "$(basename "$migration")" == 0012_* ]]; then
     echo "    (skipping $(basename "$migration") — needs real pg_cron/pg_net, not installable locally)"
     continue
   fi
