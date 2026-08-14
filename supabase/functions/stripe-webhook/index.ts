@@ -77,7 +77,11 @@ async function handleSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<voi
   // otherwise throw) rather than treating a retry as an error.
   if (payment?.status === 'succeeded') return;
 
-  await supabase.from('payments').update({ status: 'succeeded' }).eq('stripe_payment_intent_id', paymentIntent.id);
+  const processingFee = await fetchProcessingFee(paymentIntent.id);
+  await supabase
+    .from('payments')
+    .update({ status: 'succeeded', processing_fee: processingFee })
+    .eq('stripe_payment_intent_id', paymentIntent.id);
 
   const { error: transitionError } = await supabase.rpc('transition_order_status', {
     p_order_id: orderId,
@@ -87,6 +91,32 @@ async function handleSucceeded(paymentIntent: Stripe.PaymentIntent): Promise<voi
 
   const { error: confirmError } = await supabase.rpc('confirm_and_assign_order', { p_order_id: orderId });
   if (confirmError) throw confirmError;
+}
+
+/**
+ * The actual Stripe processing fee, for analytics' contribution-margin
+ * calculation (brief section 7 explicitly lists "payment processing cost"
+ * as a cost to track — this is that, not an estimate). Not present on the
+ * PaymentIntent object itself; it lives on the underlying charge's balance
+ * transaction, so this is a second API call with an explicit expand.
+ * Failure here is non-fatal and doesn't fail the whole webhook — a missing
+ * processing_fee just means that one payment's contribution margin can't
+ * be computed yet, not that the order fails to get marked paid.
+ */
+async function fetchProcessingFee(paymentIntentId: string): Promise<number | null> {
+  try {
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ['latest_charge.balance_transaction'],
+    });
+    const charge = intent.latest_charge;
+    if (!charge || typeof charge === 'string') return null;
+    const balanceTransaction = charge.balance_transaction;
+    if (!balanceTransaction || typeof balanceTransaction === 'string') return null;
+    return balanceTransaction.fee / 100;
+  } catch (err) {
+    console.error(`failed to fetch processing fee for ${paymentIntentId}:`, err);
+    return null;
+  }
 }
 
 async function handleFailed(paymentIntent: Stripe.PaymentIntent): Promise<void> {
