@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import Stripe from 'npm:stripe@^22';
+import { isAuthorized } from '../_shared/auth.ts';
 
 interface RefundRequest {
   order_id: string;
@@ -24,8 +25,7 @@ Deno.serve(async (req) => {
   // Admin-only: called from the admin app's server action, never directly
   // by a customer or courier client — refunds are an admin decision
   // (brief section 22), not something either side can trigger on their own.
-  const secret = Deno.env.get('ADMIN_ACTION_SECRET');
-  if (secret && req.headers.get('x-admin-secret') !== secret) {
+  if (!isAuthorized(Deno.env.get('ADMIN_ACTION_SECRET'), req.headers.get('x-admin-secret'))) {
     return jsonResponse({ error: 'unauthorized' }, 401);
   }
 

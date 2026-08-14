@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
+import { isAuthorized } from '../_shared/auth.ts';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -87,10 +88,8 @@ function getSupabase() {
 
 Deno.serve(async (req) => {
   // Called only by the order_status_history_notify trigger via pg_net
-  // (0008_live_tracking_notifications.sql) — not a public webhook, so a
-  // shared secret is enough (no user-facing signature scheme like Stripe's).
-  const secret = Deno.env.get('NOTIFICATION_TRIGGER_SECRET');
-  if (secret && req.headers.get('x-trigger-secret') !== secret) {
+  // (0008_live_tracking_notifications.sql) — not a public webhook.
+  if (!isAuthorized(Deno.env.get('NOTIFICATION_TRIGGER_SECRET'), req.headers.get('x-trigger-secret'))) {
     return new Response('unauthorized', { status: 401 });
   }
 

@@ -5,6 +5,20 @@ const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const TRIGGER_SECRET = process.env.MENU_SYNC_TRIGGER_SECRET;
 
 /**
+ * Fails closed: an unset configuredSecret must deny every request, not
+ * admit them. `configuredSecret && provided !== configuredSecret` looks
+ * equivalent but isn't — when configuredSecret is falsy that whole
+ * condition is simply false for every request, so forgetting to configure
+ * MENU_SYNC_TRIGGER_SECRET would silently accept unauthenticated calls.
+ * Exported for the test below; duplicated (not imported) from the same
+ * check in supabase/functions/_shared/auth.ts since this is a separate
+ * Node deployable, not sharing a module with the Deno functions.
+ */
+export function isAuthorized(configuredSecret: string | undefined, providedSecret: string | string[] | undefined): boolean {
+  return Boolean(configuredSecret) && providedSecret === configuredSecret;
+}
+
+/**
  * Minimal HTTP wrapper so Supabase's pg_cron (via pg_net, see
  * ../supabase/migrations/0005_menu_sync_cron.sql) can trigger a sync run —
  * pg_cron only speaks SQL, it can't invoke this Node process directly.
@@ -23,7 +37,7 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (TRIGGER_SECRET && req.headers['x-trigger-secret'] !== TRIGGER_SECRET) {
+  if (!isAuthorized(TRIGGER_SECRET, req.headers['x-trigger-secret'])) {
     res.writeHead(401).end();
     return;
   }
