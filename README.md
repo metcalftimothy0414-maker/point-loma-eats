@@ -4,7 +4,7 @@ Food delivery for Navy personnel around Naval Base Point Loma who don't have a
 car: off-base restaurant → approved on-base delivery point, brought by the
 founder (sole courier for V1).
 
-## Status: Phase 5 — founder courier dashboard
+## Status: Phase 6 — live order tracking, notifications
 
 Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
 points exist as browsable/admin-managed catalog data (Phase 2). Pricing is
@@ -33,9 +33,24 @@ value, restaurant + customer + delivery-point info per order, and a tappable
 phone number. Deliberately **not** shown: "delivery hours worked" / revenue-
 per-hour — those need real time tracking (clock in/out or similar) that
 doesn't exist yet; that's genuinely Phase 8 analytics work, not this
-operational screen. Also not built: realtime updates (pull-to-refresh only,
-Phase 6), and maps/distance/ETA (no Maps API configured — see brief section
-36, not faking it).
+operational screen. Also not built: maps/distance/ETA on order cards (no
+Maps API configured — see brief section 36, not faking it). The courier
+dashboard stays pull-to-refresh by design (see below), not because
+realtime wasn't built.
+
+The customer's order screen (`mobile/app/order/[id].tsx`) is now realtime —
+`orders` is in the `supabase_realtime` publication, and the screen
+subscribes to its own order's status changes rather than needing a manual
+refresh. One trigger (`order_status_history_notify`) fires on every order
+status change regardless of which path caused it (Stripe webhook, courier
+action, admin) and calls a new Edge Function, `send-order-notification`,
+which is the single place that decides which statuses are actually
+notify-worthy and sends via Expo's push API. **Real limitation:** there's
+no EAS project configured in this repo (`app.json` has no
+`extra.eas.projectId`), so push tokens can't actually be fetched yet —
+registration fails gracefully (logs, doesn't throw) rather than blocking
+the app, but receiving a real push needs `eas init` and a development
+build, neither done here. See `ARCHITECTURE.md` for the full design.
 
 `services/menu-sync/` is a full pipeline: Places lookup, robots.txt-respecting
 fetch, platform detection, normalize/diff/apply with the spec's auto-apply
@@ -56,7 +71,7 @@ the full pipeline and source policy.
 mobile/                 Expo (React Native + TypeScript) customer app, expo-router
 admin/                  Next.js admin app — Menu Sync section only so far
 supabase/migrations/    SQL migrations, applied in order
-supabase/functions/     Deno Edge Functions (Stripe checkout + webhook)
+supabase/functions/     Deno Edge Functions (checkout, webhook, notifications)
 services/menu-sync/     Automated menu ingestion pipeline
 ```
 
@@ -65,16 +80,18 @@ services/menu-sync/     Automated menu ingestion pipeline
 1. Create a Supabase project and a Stripe account (test mode is fine).
 2. `cd mobile && cp .env.example .env` and fill in your project's URL + anon
    key (Project Settings → API) and your Stripe publishable key.
-3. Apply the migrations in `supabase/migrations/` in order (0001–0007) via
+3. Apply the migrations in `supabase/migrations/` in order (0001–0008) via
    the Supabase SQL editor, or `supabase db push` if you've linked the
-   project with the Supabase CLI. `0005` needs `pg_cron`/`pg_net` enabled on
-   your project (Database → Extensions).
-4. Deploy the Edge Functions: `supabase functions deploy create-payment-intent stripe-webhook`,
-   then `supabase secrets set STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=...`
+   project with the Supabase CLI. `0005`/`0008` need `pg_cron`/`pg_net`
+   enabled on your project (Database → Extensions).
+4. Deploy the Edge Functions: `supabase functions deploy create-payment-intent stripe-webhook send-order-notification`,
+   then `supabase secrets set STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... NOTIFICATION_TRIGGER_SECRET=...`
    (`SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` are
    injected automatically). Point a Stripe webhook at the deployed
    `stripe-webhook` URL for `payment_intent.succeeded` and
-   `payment_intent.payment_failed`.
+   `payment_intent.payment_failed`. Then point the DB at the deployed
+   notification function (see `supabase/functions/README.md` for the exact
+   `alter database` commands).
 5. `cd mobile && npm install && npm run ios` (or `android`).
 6. Admin app: `cd admin && cp .env.example .env.local`, fill in the service
    role key and a Basic Auth username/password, `npm install && npm run dev`.
@@ -97,8 +114,6 @@ customer side.
 
 ## Roadmap
 
-Phase 6: live order tracking (realtime, not the point-in-time confirmation
-screen that exists now), notifications.
 Phase 7: full admin dashboard (Next.js) — Orders, Customers, full Pricing UI,
 Analytics, Payments, Refunds, Support, Incidents, Settings. (Menu Sync
 already exists in `admin/`.)

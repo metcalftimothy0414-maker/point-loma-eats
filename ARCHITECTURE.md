@@ -97,10 +97,66 @@ founder) and transitions to `COURIER_ASSIGNED` if one exists. If no courier
 row exists yet (founder hasn't been promoted per the README), it stops at
 `CONFIRMED` rather than failing the payment webhook over it.
 
-**Not built:** live order tracking (Phase 6) — the customer-facing order
-screen is point-in-time, not realtime-subscribed. Refund execution (Stripe
-refund API call) — `REFUND_PENDING`/`REFUNDED` are real reachable states,
-but nothing currently calls Stripe to actually issue one.
+**Not built:** refund execution (Stripe refund API call) —
+`REFUND_PENDING`/`REFUNDED` are real reachable states, but nothing
+currently calls Stripe to actually issue one.
+
+## Live tracking & notifications
+
+**Goal:** the customer's order screen reflects reality without a manual
+refresh, and both the customer and courier get pushed the handful of
+status changes that actually matter to them — without needing every place
+that can change an order's status to remember to also send a notification.
+
+### Live tracking
+
+`orders` is added to the `supabase_realtime` publication
+(`0008_live_tracking_notifications.sql` — tables aren't broadcast by
+default). The customer's order screen (`mobile/app/order/[id].tsx`)
+subscribes to `UPDATE` events on its own order id and patches just the
+`status` field into local state; everything else on the order (items,
+totals, restaurant/delivery point) is fetched once and doesn't change
+after checkout. RLS already scopes this correctly — the existing
+`orders_select_own_customer_or_courier_or_admin` policy applies to
+Realtime subscriptions the same way it applies to a normal query, so no
+new policy was needed for this part.
+
+The courier dashboard is deliberately *not* realtime-subscribed — it's
+pull-to-refresh plus the "New order" push notification below, which
+covers the actual need (knowing promptly that something needs attention)
+without adding a second live-subscription surface for what the brief only
+called out as customer-facing tracking.
+
+### Notifications
+
+One trigger, not scattered notify-calls: `order_status_history_notify`
+(`0008_live_tracking_notifications.sql`) fires on *every* insert into
+`order_status_history`, regardless of which of the several paths wrote it
+(the Stripe webhook, a courier's own RPC call from the dashboard, an admin
+action) — via `pg_net`, calling the `send-order-notification` Edge
+Function. That function is the single place that decides which statuses
+are actually notify-worthy (`selectNotifications()`, matching the brief's
+customer/courier notification lists in section 20, plus `CANCELLED` added
+to the customer list — leaving a customer with no word their order was
+cancelled seemed worse than the brief's list not being exhaustive there).
+Deciding this in exactly one place matters: a second filter at the
+trigger level could quietly drift out of agreement with the function's
+own mapping over time.
+
+Push delivery itself is Expo's push service (`exp.host/--/api/v2/push/send`),
+using whichever `profiles.expo_push_token` applies —
+`mobile/lib/notifications.ts` registers one per account (not per device;
+V1 doesn't need multi-device push) after sign-in, regardless of role, since
+both customers and couriers can receive pushes.
+
+**Real limitation, not glossed over:** this repo has no EAS project
+configured (`app.json` has no `extra.eas.projectId`), and Expo Go no
+longer supports remote push (removed in SDK 53+) — so
+`getExpoPushTokenAsync` has nothing to call and returns null in the
+current setup. `registerForPushNotificationsAsync()` handles that
+gracefully (logs and returns null, never throws — the rest of the app
+works regardless), but actually receiving a push needs `eas init` and a
+development build, neither of which is done here.
 
 ## Courier dashboard
 

@@ -14,10 +14,6 @@ type OrderDetail = {
   delivery_point_id: string;
 };
 
-// Not live-updating yet (Phase 6: realtime order tracking) — this is a
-// point-in-time confirmation screen, matching the brief's "receive an
-// order confirmation" success criterion, not the full status-by-status
-// tracking UI.
 const STATUS_LABELS: Record<string, string> = {
   CREATED: 'Order created',
   PAYMENT_PENDING: 'Processing payment…',
@@ -72,6 +68,33 @@ export default function OrderDetailScreen() {
       setRestaurantName(restaurantRes.data?.name ?? null);
       setDeliveryPointName(deliveryPointRes.data?.name ?? null);
     })();
+  }, [id]);
+
+  // Live status updates — orders is in the supabase_realtime publication
+  // (0008_live_tracking_notifications.sql) specifically so this works.
+  // Only status is patched in from the event; everything else on the
+  // order (items, totals, restaurant/delivery point) is set once above
+  // and doesn't change after checkout.
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase
+      .channel(`order-${id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${id}` },
+        (payload) => {
+          const nextStatus = (payload.new as { status?: string }).status;
+          if (nextStatus) {
+            setOrder((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [id]);
 
   if (error) {

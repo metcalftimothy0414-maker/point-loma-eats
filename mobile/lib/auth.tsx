@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { registerForPushNotificationsAsync } from './notifications';
 
 export type Profile = { id: string; full_name: string | null; role: 'customer' | 'courier' | 'admin' };
 
@@ -11,6 +12,12 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue>({ session: null, profile: null, isLoading: true });
+
+async function registerPushToken(userId: string): Promise<void> {
+  const token = await registerForPushNotificationsAsync();
+  if (!token) return;
+  await supabase.from('profiles').update({ expo_push_token: token }).eq('id', userId);
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -34,6 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .eq('id', nextSession.user.id)
           .single();
         if (isMounted) setProfile(data ?? null);
+        // Fire-and-forget: registration can be slow (permission prompt) or
+        // fail outright (simulator, no EAS project — see notifications.ts),
+        // and none of that should hold up routing.
+        void registerPushToken(nextSession.user.id);
       } else {
         setProfile(null);
       }

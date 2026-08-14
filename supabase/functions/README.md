@@ -13,12 +13,20 @@ Deno. See `../../ARCHITECTURE.md` for the checkout flow these are part of.
   own webhook retries (checks the recorded payment status before
   re-transitioning, since e.g. `PAID -> PAID` isn't a valid transition and
   would otherwise throw on a replayed event).
+- `send-order-notification/` — called by the `order_status_history_notify`
+  Postgres trigger (`0008_live_tracking_notifications.sql`) via `pg_net` on
+  every order status change, not by Stripe or a client. Decides who (if
+  anyone) gets a push for a given status via `selectNotifications()` — a
+  pure function, tested in `index.test.ts` — then sends via Expo's push API
+  using whichever `profiles.expo_push_token` applies. Most calls to this
+  function intentionally do nothing (most statuses aren't customer/courier
+  notify-worthy).
 
 ## Deploy
 
 ```
-supabase functions deploy create-payment-intent stripe-webhook
-supabase secrets set STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_SECRET=whsec_...
+supabase functions deploy create-payment-intent stripe-webhook send-order-notification
+supabase secrets set STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_SECRET=whsec_... NOTIFICATION_TRIGGER_SECRET=...
 ```
 
 `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` are injected
@@ -28,9 +36,22 @@ Point a Stripe webhook (Dashboard → Developers → Webhooks) at the deployed
 `stripe-webhook` function URL, subscribed to `payment_intent.succeeded` and
 `payment_intent.payment_failed`.
 
+After deploying `send-order-notification`, point the DB trigger at it —
+neither of these is set by the migration itself, since the function has no
+URL until it's deployed:
+
+```sql
+alter database postgres set app.settings.notification_trigger_url = 'https://<project-ref>.supabase.co/functions/v1/send-order-notification';
+alter database postgres set app.settings.notification_trigger_secret = '<same value as NOTIFICATION_TRIGGER_SECRET>';
+```
+
 ## Local dev
 
 `deno check <file>` works without any Supabase/Stripe credentials (verified
-against real Stripe v22 types). Running these for real needs
+against real Stripe v22 types). `deno test --allow-net --allow-env
+send-order-notification/index.test.ts` runs the notification-mapping tests
+— `--allow-net`/`--allow-env` are needed only because `Deno.serve` runs at
+module scope (the Supabase Edge Function convention), not because the
+tests themselves touch the network. Running these for real needs
 `supabase functions serve` plus a `.env` with the vars above — not set up
 here, since there's no Supabase project linked yet.
