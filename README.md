@@ -4,7 +4,7 @@ Food delivery for Navy personnel around Naval Base Point Loma who don't have a
 car: off-base restaurant → approved on-base delivery point, brought by the
 founder (sole courier for V1).
 
-## Status: Phase 4 — checkout, Stripe payments, real order state machine
+## Status: Phase 5 — founder courier dashboard
 
 Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
 points exist as browsable/admin-managed catalog data (Phase 2). Pricing is
@@ -14,19 +14,28 @@ delivery-fee model in the original brief — that's a deliberate pivot, not
 drift. The mobile app lists restaurants, shows menus grouped by category, and
 has a cart, checkout, and Stripe payment (Phase 3 + 4).
 
-`orders` is now the real 17-state machine from the brief, not a placeholder.
-`create_order()` re-prices every item server-side and enforces
-`minimum_subtotal` — the client is never trusted with pricing.
-`transition_order_status()` validates every transition against a fixed graph
-and checks who's allowed to make it (customer can cancel their own order,
-the assigned courier can advance their own delivery states, everything else
-is admin/service-role only). Checkout goes through two Supabase Edge
-Functions (`create-payment-intent`, `stripe-webhook`) — the webhook is the
-only thing that ever marks an order PAID, never the client. There's no
-courier dashboard yet (Phase 5), so the automated flow stops at
-`COURIER_ASSIGNED` once payment succeeds — the sole V1 courier gets
-auto-assigned, but accepting and advancing the order needs a UI that doesn't
-exist yet.
+`orders` is the real 17-state machine from the brief. `create_order()`
+re-prices every item server-side and enforces `minimum_subtotal` — the
+client is never trusted with pricing. `transition_order_status()` validates
+every transition against a fixed graph and checks who's allowed to make it.
+Checkout goes through two Supabase Edge Functions (`create-payment-intent`,
+`stripe-webhook`) — the webhook is the only thing that ever marks an order
+PAID, never the client.
+
+The courier dashboard lives in the *same* mobile app, not a separate one —
+a `profiles.role = 'courier'` account gets routed to `(courier)` instead of
+the customer tabs on sign-in. One account is one role at a time; there's no
+role switcher, so testing both sides means two accounts (see "After you
+sign up" below). It shows in-flight deliveries (everything assigned to that
+courier from `COURIER_ASSIGNED` through `ARRIVED`) with a single
+next-action button per order, today's order count/revenue/average order
+value, restaurant + customer + delivery-point info per order, and a tappable
+phone number. Deliberately **not** shown: "delivery hours worked" / revenue-
+per-hour — those need real time tracking (clock in/out or similar) that
+doesn't exist yet; that's genuinely Phase 8 analytics work, not this
+operational screen. Also not built: realtime updates (pull-to-refresh only,
+Phase 6), and maps/distance/ETA (no Maps API configured — see brief section
+36, not faking it).
 
 `services/menu-sync/` is a full pipeline: Places lookup, robots.txt-respecting
 fetch, platform detection, normalize/diff/apply with the spec's auto-apply
@@ -51,14 +60,12 @@ supabase/functions/     Deno Edge Functions (Stripe checkout + webhook)
 services/menu-sync/     Automated menu ingestion pipeline
 ```
 
-Courier dashboard lands in a later phase — not scaffolded yet.
-
 ## Local setup
 
 1. Create a Supabase project and a Stripe account (test mode is fine).
 2. `cd mobile && cp .env.example .env` and fill in your project's URL + anon
    key (Project Settings → API) and your Stripe publishable key.
-3. Apply the migrations in `supabase/migrations/` in order (0001–0006) via
+3. Apply the migrations in `supabase/migrations/` in order (0001–0007) via
    the Supabase SQL editor, or `supabase db push` if you've linked the
    project with the Supabase CLI. `0005` needs `pg_cron`/`pg_net` enabled on
    your project (Database → Extensions).
@@ -76,18 +83,20 @@ Courier dashboard lands in a later phase — not scaffolded yet.
 
 New accounts default to `role = 'customer'`. Role changes are intentionally
 not client-settable (RLS blocks it — see migration comments). To make your
-own account the courier, run in the Supabase SQL editor:
+own account the courier — and see the courier dashboard instead of the
+customer app on sign-in — run in the Supabase SQL editor:
 
 ```sql
 update profiles set role = 'courier' where id = '<your-auth-user-id>';
 insert into couriers (id) values ('<your-auth-user-id>');
 ```
 
+That account can no longer browse/order as a customer once it's a courier
+(one role at a time, no switcher) — use a second account to test the
+customer side.
+
 ## Roadmap
 
-Phase 5: founder courier dashboard, delivery workflow (accept, mark picked
-up/en route/arrived — the state machine and auto-assignment already exist,
-this is the UI to actually drive it past COURIER_ASSIGNED).
 Phase 6: live order tracking (realtime, not the point-in-time confirmation
 screen that exists now), notifications.
 Phase 7: full admin dashboard (Next.js) — Orders, Customers, full Pricing UI,

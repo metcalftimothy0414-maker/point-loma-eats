@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../../lib/auth';
 
 export default function AuthLayout() {
-  const { session, isLoading } = useAuth();
+  const { session, profile, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -14,7 +14,7 @@ export default function AuthLayout() {
   }
 
   if (session) {
-    return <Redirect href="/(tabs)" />;
+    return <Redirect href={profile?.role === 'courier' ? '/(courier)' : '/(tabs)'} />;
   }
 
   return <Slot />;

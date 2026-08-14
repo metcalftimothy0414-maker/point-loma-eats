@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../../lib/auth';
 
 export default function TabsLayout() {
-  const { session, isLoading } = useAuth();
+  const { session, profile, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -15,6 +15,10 @@ export default function TabsLayout() {
 
   if (!session) {
     return <Redirect href="/(auth)/sign-in" />;
+  }
+
+  if (profile?.role === 'courier') {
+    return <Redirect href="/(courier)" />;
   }
 
   return (

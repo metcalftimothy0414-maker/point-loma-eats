@@ -97,14 +97,47 @@ founder) and transitions to `COURIER_ASSIGNED` if one exists. If no courier
 row exists yet (founder hasn't been promoted per the README), it stops at
 `CONFIRMED` rather than failing the payment webhook over it.
 
-**Not built:** the founder courier dashboard (Phase 5) — the automated flow
-stops at `COURIER_ASSIGNED`; accepting and advancing through the delivery
-states needs a UI that doesn't exist yet, even though the state machine and
-authorization already support it. Live order tracking (Phase 6) — the
-customer-facing order screen is point-in-time, not realtime-subscribed.
-Refund execution (Stripe refund API call) — `REFUND_PENDING`/`REFUNDED` are
-real reachable states, but nothing currently calls Stripe to actually issue
-one.
+**Not built:** live order tracking (Phase 6) — the customer-facing order
+screen is point-in-time, not realtime-subscribed. Refund execution (Stripe
+refund API call) — `REFUND_PENDING`/`REFUNDED` are real reachable states,
+but nothing currently calls Stripe to actually issue one.
+
+## Courier dashboard
+
+Lives in `mobile/`, not a separate app — the courier is just another
+`profiles` row with `role = 'courier'`, and the same Expo app routes them
+to a `(courier)` group instead of the customer `(tabs)` group on sign-in
+(`app/index.tsx`, `(auth)/_layout.tsx`, `(tabs)/_layout.tsx` all check
+`profile.role`). One account is one role at a time — there's no in-app role
+switcher; testing both sides needs two accounts. This was a deliberate
+reuse decision: the courier already has an authenticated Supabase session
+via the exact same auth system, so a second app would only duplicate that
+plumbing for no benefit at V1's scale (one courier).
+
+`app/(courier)/index.tsx` queries `orders` for everything assigned to that
+courier in an in-flight status (`COURIER_ASSIGNED` through `ARRIVED` —
+excludes `DELIVERED`/`CANCELLED`/`REFUND_PENDING`/`REFUNDED`/`DISPUTED`,
+which are either done or admin-only from here per
+`transition_order_status()`'s authorization table). Each order's single
+next-action button calls `transition_order_status()` directly with the
+courier's own session — no separate approval layer, the DB function is
+already the authority.
+
+This needed one RLS fix (`0007_courier_customer_visibility.sql`): the
+original `profiles` policy only let someone read their own row or an admin
+read any row, so a courier had no path to a customer's name/phone at all,
+even for an order assigned to them. Fixed with a policy scoped to exactly
+that relationship — a courier can read a customer's profile only if an
+order links them, never a blanket grant.
+
+**Deliberately not shown:** "delivery hours worked" and revenue-per-hour.
+Both need real time tracking (a clock-in/out concept, or similar) that
+doesn't exist in the schema — approximating it from order timestamps would
+produce a misleading number, and the real version of this metric is
+explicitly Phase 8 analytics work, not this operational screen. Also not
+built: realtime updates (pull-to-refresh only; Phase 6), and maps/distance/
+ETA on each order card (no Maps API configured — per brief section 36, not
+faking an integration that isn't there).
 
 ## Menu sync
 

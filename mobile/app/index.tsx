@@ -3,7 +3,7 @@ import { Redirect } from 'expo-router';
 import { useAuth } from '../lib/auth';
 
 export default function Index() {
-  const { session, isLoading } = useAuth();
+  const { session, profile, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -13,5 +13,7 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={session ? '/(tabs)' : '/(auth)/sign-in'} />;
+  if (!session) return <Redirect href="/(auth)/sign-in" />;
+  if (profile?.role === 'courier') return <Redirect href="/(courier)" />;
+  return <Redirect href="/(tabs)" />;
 }
