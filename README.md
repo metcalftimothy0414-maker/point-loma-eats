@@ -161,14 +161,16 @@ customer side.
 ## Roadmap
 
 Phase 9 (tests, security pass, polish) is underway: the SQL regression
-suite and the fail-open→fail-closed security fixes above are done.
-Remaining under "polish": `SECURITY.md`/`BUSINESS_LOGIC.md` (the brief's
-section 34 calls for both alongside this README/`ARCHITECTURE.md`), a
-deliberate error-handling review against section 32's list, and the
-still-unresolved items called out throughout this README/`ARCHITECTURE.md`
-(no EAS project for real push notifications, the four POS-platform
-adapters, OAuth integration for them if that's ever decided, an actual
-deployment target for `services/menu-sync`).
+suite, the fail-open→fail-closed security fixes, and `SECURITY.md`/
+`BUSINESS_LOGIC.md` (brief section 34) are done. Remaining under "polish":
+a deliberate error-handling review against section 32's list, and the
+still-unresolved items called out throughout this README/`ARCHITECTURE.md`/
+`SECURITY.md` (no EAS project for real push notifications, the four
+POS-platform adapters, OAuth integration for them if that's ever decided,
+an actual deployment target for `services/menu-sync`, no fraud/abuse
+detection).
 
 Full spec lives in the project's CLAUDE.md-equivalent brief; this README
-tracks what's actually built.
+tracks what's actually built. `ARCHITECTURE.md` covers how it works,
+`SECURITY.md` covers how it's protected, `BUSINESS_LOGIC.md` covers the
+rules (pricing, state machine, thresholds) independent of implementation.
