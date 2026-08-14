@@ -4,7 +4,7 @@ Food delivery for Navy personnel around Naval Base Point Loma who don't have a
 car: off-base restaurant → approved on-base delivery point, brought by the
 founder (sole courier for V1).
 
-## Status: Phase 6 — live order tracking, notifications
+## Status: Phase 7 — admin dashboard
 
 Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
 points exist as browsable/admin-managed catalog data (Phase 2). Pricing is
@@ -61,17 +61,28 @@ scrapable without either browser automation (out of bounds — see
 `ARCHITECTURE.md`) or an OAuth partner API integration (a real scope
 addition, not decided). `generic.ts` (Claude vision) is the adapter that
 actually works, and is what runs for Point Loma Eats' real target
-restaurants. `admin/` is a new Next.js app with just the Menu Sync review
-section — not the full Phase 7 admin dashboard. See `ARCHITECTURE.md` for
-the full pipeline and source policy.
+restaurants.
+
+`admin/` now covers Dashboard, Orders, Restaurants, Customers,
+Installations, Pricing, Payments, Refunds, Support, and Menu Sync — closing
+a real gap along the way: restaurants, menu items, installations, delivery
+zones/points, and pricing previously had **no UI at all**, only direct SQL.
+Refunds now actually calls Stripe (`refund-payment`, a new Edge Function) —
+`REFUND_PENDING`/`REFUNDED` were reachable states since Phase 4 with
+nothing that issued one. Deliberately **not** built: Analytics (still its
+own later phase — see Roadmap) and Incidents/Settings (the brief never
+defines what either would contain beyond what Support and env vars already
+cover). See `ARCHITECTURE.md` for the full section-by-section design and
+scope reasoning.
 
 ## Structure
 
 ```
-mobile/                 Expo (React Native + TypeScript) customer app, expo-router
-admin/                  Next.js admin app — Menu Sync section only so far
+mobile/                 Expo (React Native + TypeScript) customer + courier app, expo-router
+admin/                  Next.js admin app — Dashboard, Orders, Restaurants, Customers,
+                         Installations, Pricing, Payments, Refunds, Support, Menu Sync
 supabase/migrations/    SQL migrations, applied in order
-supabase/functions/     Deno Edge Functions (checkout, webhook, notifications)
+supabase/functions/     Deno Edge Functions (checkout, webhook, notifications, refunds)
 services/menu-sync/     Automated menu ingestion pipeline
 ```
 
@@ -80,12 +91,12 @@ services/menu-sync/     Automated menu ingestion pipeline
 1. Create a Supabase project and a Stripe account (test mode is fine).
 2. `cd mobile && cp .env.example .env` and fill in your project's URL + anon
    key (Project Settings → API) and your Stripe publishable key.
-3. Apply the migrations in `supabase/migrations/` in order (0001–0008) via
+3. Apply the migrations in `supabase/migrations/` in order (0001–0009) via
    the Supabase SQL editor, or `supabase db push` if you've linked the
    project with the Supabase CLI. `0005`/`0008` need `pg_cron`/`pg_net`
    enabled on your project (Database → Extensions).
-4. Deploy the Edge Functions: `supabase functions deploy create-payment-intent stripe-webhook send-order-notification`,
-   then `supabase secrets set STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... NOTIFICATION_TRIGGER_SECRET=...`
+4. Deploy the Edge Functions: `supabase functions deploy create-payment-intent stripe-webhook send-order-notification refund-payment`,
+   then `supabase secrets set STRIPE_SECRET_KEY=... STRIPE_WEBHOOK_SECRET=... NOTIFICATION_TRIGGER_SECRET=... ADMIN_ACTION_SECRET=...`
    (`SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` are
    injected automatically). Point a Stripe webhook at the deployed
    `stripe-webhook` URL for `payment_intent.succeeded` and
@@ -94,7 +105,8 @@ services/menu-sync/     Automated menu ingestion pipeline
    `alter database` commands).
 5. `cd mobile && npm install && npm run ios` (or `android`).
 6. Admin app: `cd admin && cp .env.example .env.local`, fill in the service
-   role key and a Basic Auth username/password, `npm install && npm run dev`.
+   role key, a Basic Auth username/password, and (once deployed)
+   `REFUND_PAYMENT_URL`/`ADMIN_ACTION_SECRET`, `npm install && npm run dev`.
 
 ## After you (the founder) sign up
 
@@ -114,10 +126,11 @@ customer side.
 
 ## Roadmap
 
-Phase 7: full admin dashboard (Next.js) — Orders, Customers, full Pricing UI,
-Analytics, Payments, Refunds, Support, Incidents, Settings. (Menu Sync
-already exists in `admin/`.)
-Phase 8: analytics (revenue/delivery-hour, repeat rate, etc.).
+Phase 8: deeper analytics (most popular restaurant/delivery point, peak
+ordering hour, contribution margin trends, customer acquisition cost — the
+Dashboard already covers today's orders/revenue/avg order value/avg tip/
+cancellations, avg delivery time, orders & revenue per hour, repeat-customer
+rate).
 Phase 9: tests, security pass, polish.
 
 Full spec lives in the project's CLAUDE.md-equivalent brief; this README

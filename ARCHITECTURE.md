@@ -3,20 +3,24 @@
 ## Structure
 
 ```
-mobile/                 Expo (React Native + TypeScript) customer app, expo-router
-admin/                  Next.js admin app — currently just the Menu Sync section
+mobile/                 Expo (React Native + TypeScript) customer + courier app, expo-router
+admin/                  Next.js admin app — Dashboard/Orders/Restaurants/Customers/
+                         Installations/Pricing/Payments/Refunds/Support/Menu Sync
 supabase/migrations/    SQL migrations, applied in order, single source of truth for the schema
-supabase/functions/     Deno Edge Functions — Stripe checkout + webhook only so far
+supabase/functions/     Deno Edge Functions — checkout, webhook, notifications, refunds
 services/menu-sync/     Automated menu ingestion pipeline (Node, standalone deployable)
 ```
 
 Backend is Supabase end to end — Postgres + Auth + RLS + Realtime, plus Edge
-Functions for the two things Postgres genuinely can't do itself: calling
-Stripe, and verifying Stripe's webhook signature. No separate API server for
-the customer/courier apps. `services/menu-sync` is the one piece of backend
-logic that lives fully outside Supabase, because it needs to make outbound
-HTTP calls (restaurant sites, Google Places, the Claude API) on a nightly
-schedule, not in response to a request.
+Functions for the things Postgres genuinely can't do itself: calling Stripe,
+verifying Stripe's webhook signature, and sending push notifications. No
+separate API server for the customer/courier apps. `admin/` talks to
+Postgres directly via the service role key (see its own section below) —
+it's the one app in this repo that doesn't go through RLS at all.
+`services/menu-sync` is the one piece of backend logic that lives fully
+outside Supabase, because it needs to make outbound HTTP calls (restaurant
+sites, Google Places, the Claude API) on a nightly schedule, not in response
+to a request.
 
 Security model throughout: RLS denies by default, an `is_admin()` helper
 (checks `profiles.role`) gates admin policies, and anything that would leak
@@ -194,6 +198,88 @@ explicitly Phase 8 analytics work, not this operational screen. Also not
 built: realtime updates (pull-to-refresh only; Phase 6), and maps/distance/
 ETA on each order card (no Maps API configured — per brief section 36, not
 faking an integration that isn't there).
+
+## Admin dashboard
+
+**Scope decision, stated up front:** the brief lists 14 admin sections.
+Built for real: Dashboard, Orders, Restaurants, Customers, Installations,
+Pricing, Payments, Refunds, Support, Menu Sync. Dropped: Analytics (already
+a distinct later phase in the roadmap — folding it in here would blur that
+boundary rather than respect it), and Incidents/Settings (the brief never
+actually defines what either would contain beyond what Support and env vars
+already cover — a placeholder page with nothing real in it seemed worse
+than an honest omission).
+
+### Access model
+
+Every page uses `lib/supabase-admin.ts` — a service-role Supabase client
+that bypasses RLS entirely — gated by `proxy.ts`'s HTTP Basic Auth with a
+single shared founder credential. This is a deliberate shortcut, not an
+oversight: building real per-admin authentication (Supabase Auth sessions,
+`is_admin()`-checked RLS instead of a full bypass) for an app with exactly
+one real user would be pure unused infrastructure. The concrete cost of
+that shortcut: support ticket resolutions have no `resolved_by`, since
+there's no per-admin identity to attribute one to. Revisit both the auth
+model and that gap together, if a second admin ever becomes real.
+
+### Restaurants, menus, installations, pricing — closing a real gap
+
+Before this phase, restaurants, menu items, installations, delivery zones/
+points, and pricing could only be created or changed via direct SQL — every
+example in this repo's own migration tests was seeded that way. That's not
+a viable operating model past initial local testing. These four sections
+are straightforward CRUD (Server Components for reads, Server Actions for
+writes, following the pattern the Menu Sync section already established),
+but they're not busywork: they're the actual mechanism the founder would
+use to run the business day to day. Two things worth calling out
+specifically:
+
+- Menu item edits only ever write `base_price` — `display_price` stays
+  derived by the trigger from 0003, the same invariant every other write
+  path in this repo (checkout, menu-sync's `apply.ts`) already respects.
+- Pricing changes insert a new `pricing_settings` row rather than editing
+  the current one in place, matching its `effective_from`-versioned design
+  — editing in place would silently rewrite what rate was "in effect" for
+  past orders, which the schema specifically exists to prevent.
+
+The Pricing page queries the `pricing_settings` table directly rather than
+calling `current_pricing_settings()` via RPC — that function had `EXECUTE`
+revoked from `PUBLIC` (0003, to stop `anon`/`authenticated` reading markup
+off it) and is owned by whoever ran the migration, not `service_role`;
+rather than assume `service_role` still has `EXECUTE` on it specifically,
+querying the table directly sidesteps the question — `service_role`'s
+`BYPASSRLS` plus its ordinary table-level grants (the same mechanism every
+other admin page already relies on) cover it without ambiguity.
+
+### Orders and Refunds
+
+The order detail page can set any status directly and can see
+`food_cost`/`gross_margin` (both hidden from the customer/courier apps via
+column-level grants, but visible here since `service_role` was never
+revoked from) — `transition_order_status()`'s fixed graph is still
+enforced underneath; an admin attempting an invalid transition gets an
+error, not a silent no-op or a bypass of the state machine itself. Calling
+that function from this app's service-role client satisfies its
+`v_is_service_role` check the same way the Stripe webhook already does —
+an intentional, previously-documented part of the state machine, not a new
+bypass introduced here.
+
+Refunds closes a gap flagged since Phase 4: `REFUND_PENDING`/`REFUNDED`
+were reachable states with nothing that actually called Stripe. The
+`refund-payment` Edge Function (admin-only, shared-secret gated) does that
+for real — see its own section under Edge Functions below.
+
+### Dashboard metrics — what's real, what's deferred
+
+Average delivery time is computed from actual `order_status_history`
+timestamps (`COURIER_ACCEPTED` → `DELIVERED`), not estimated. Orders/hour
+and revenue/hour use wall-clock hours since midnight — a genuinely
+different, honestly-computable metric from what the courier dashboard
+deliberately omits ("hours worked," which would need real clock-in/out
+data that doesn't exist). Repeat-customer rate is lifetime, not scoped to
+today. Deeper analytics — most popular restaurant/delivery point, peak
+ordering hour, contribution margin trends, customer acquisition cost — stay
+out of this page on purpose; that's Phase 8.
 
 ## Menu sync
 
