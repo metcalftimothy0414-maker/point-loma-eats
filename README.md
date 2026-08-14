@@ -4,7 +4,7 @@ Food delivery for Navy personnel around Naval Base Point Loma who don't have a
 car: off-base restaurant → approved on-base delivery point, brought by the
 founder (sole courier for V1).
 
-## Status: Phase 8 — analytics
+## Status: Phase 9 — tests, security pass, polish
 
 Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
 points exist as browsable/admin-managed catalog data (Phase 2). Pricing is
@@ -89,6 +89,26 @@ spend) and vehicle/gas cost (no real input for it exists anywhere in the
 schema) — both would produce a more confident-looking number than the data
 actually supports.
 
+`supabase/tests/` is a new, real, re-runnable SQL regression suite —
+formalizing what had been ad-hoc, throwaway local-Postgres verification
+into something that stays around. It's not just a formality: writing it
+found a genuine bug that had shipped silently since Phase 1 —
+`profiles_update_own_or_admin`'s `WITH CHECK` clause had a raw
+self-referential subquery against `profiles` (a known Postgres RLS
+recursion trap, not wrapped in `SECURITY DEFINER` the way `is_admin()`
+correctly is), which broke *any* update to your own profile row. Nothing
+had ever caught it because the mobile app has never implemented profile
+editing. Fixed in `0011_fix_profile_update_recursion.sql`. Separately, a
+security pass found that three internal-only endpoints
+(`refund-payment`, `send-order-notification`, `services/menu-sync`'s HTTP
+trigger) failed *open* rather than closed when their shared-secret env var
+was unset — an operator who forgot to configure `ADMIN_ACTION_SECRET`
+would have deployed a public, unauthenticated endpoint capable of issuing
+a real Stripe refund against any order. Fixed in all three, each with a
+small tested pure function rather than just a patched `if`. See
+`ARCHITECTURE.md`'s Testing & security section and `supabase/tests/README.md`
+for the full detail.
+
 ## Structure
 
 ```
@@ -105,7 +125,7 @@ services/menu-sync/     Automated menu ingestion pipeline
 1. Create a Supabase project and a Stripe account (test mode is fine).
 2. `cd mobile && cp .env.example .env` and fill in your project's URL + anon
    key (Project Settings → API) and your Stripe publishable key.
-3. Apply the migrations in `supabase/migrations/` in order (0001–0010) via
+3. Apply the migrations in `supabase/migrations/` in order (0001–0011) via
    the Supabase SQL editor, or `supabase db push` if you've linked the
    project with the Supabase CLI. `0005`/`0008` need `pg_cron`/`pg_net`
    enabled on your project (Database → Extensions).
@@ -140,7 +160,15 @@ customer side.
 
 ## Roadmap
 
-Phase 9: tests, security pass, polish.
+Phase 9 (tests, security pass, polish) is underway: the SQL regression
+suite and the fail-open→fail-closed security fixes above are done.
+Remaining under "polish": `SECURITY.md`/`BUSINESS_LOGIC.md` (the brief's
+section 34 calls for both alongside this README/`ARCHITECTURE.md`), a
+deliberate error-handling review against section 32's list, and the
+still-unresolved items called out throughout this README/`ARCHITECTURE.md`
+(no EAS project for real push notifications, the four POS-platform
+adapters, OAuth integration for them if that's ever decided, an actual
+deployment target for `services/menu-sync`).
 
 Full spec lives in the project's CLAUDE.md-equivalent brief; this README
 tracks what's actually built.

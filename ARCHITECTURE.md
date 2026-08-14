@@ -101,9 +101,9 @@ founder) and transitions to `COURIER_ASSIGNED` if one exists. If no courier
 row exists yet (founder hasn't been promoted per the README), it stops at
 `CONFIRMED` rather than failing the payment webhook over it.
 
-**Not built:** refund execution (Stripe refund API call) —
-`REFUND_PENDING`/`REFUNDED` are real reachable states, but nothing
-currently calls Stripe to actually issue one.
+Refund execution (an actual Stripe refund API call) was built in Phase 7 —
+see the Admin Dashboard section's "Orders and Refunds" below for
+`refund-payment`.
 
 ## Live tracking & notifications
 
@@ -433,3 +433,57 @@ nightly run isn't sized or budgeted. Admin approve/reject currently
 soft-deletes (`is_available = false`) rather than hard-deleting on an
 approved `delete` change, so it's reversible — there's no hard-delete path
 from the admin UI yet.
+
+## Testing & security
+
+**Goal:** the highest-risk parts of this system (RLS, the order state
+machine, checkout atomicity, admin permissions) get a real, persistent,
+re-runnable regression suite — not just the ad-hoc "spin up local Postgres,
+check something, tear it down" verification every earlier phase used while
+building, which caught real bugs in the moment but left nothing behind.
+
+### SQL test suite
+
+`supabase/tests/` — `run.sh` applies every migration (except `0005`, which
+needs real `pg_cron`/`pg_net`) to a throwaway local Postgres and runs five
+numbered test files covering exactly the brief's section 31 list: customer
+isolation, courier isolation, order state transitions and their
+authorization boundaries, checkout atomicity and pricing math, and admin
+permissions (including the row-level-vs-column-level nuance between
+`is_admin()`-via-JWT and `service_role` — see the file itself). Full
+details, including two real psql gotchas the test files had to work around
+(cross-file variable scope, and `:'var'` substitution not reaching inside
+`do $$ ... $$` blocks), are in `supabase/tests/README.md`.
+
+**What it actually found, not just re-confirmed:** `profiles_update_own_or_admin`'s
+`WITH CHECK` clause had a raw self-referential subquery against `profiles`
+— a known Postgres RLS recursion trap, not wrapped in a `SECURITY DEFINER`
+function the way `is_admin()` correctly is. This broke *any* update to
+your own profile row, not just a role-escalation attempt — genuinely
+broken since Phase 1, undiscovered until now because the mobile app has
+never implemented profile editing. Fixed in
+`0011_fix_profile_update_recursion.sql`.
+
+### The other real security fix this phase
+
+Three internal-only endpoints — `refund-payment`, `send-order-notification`,
+and `services/menu-sync`'s HTTP trigger — used `if (secret && header !== secret)`
+to gate access. When the secret env var is unset, that condition is false
+for *every* request, so the unauthorized branch never fires: an operator
+who forgot to configure `ADMIN_ACTION_SECRET` would have deployed a public,
+unauthenticated endpoint that can issue a real Stripe refund against any
+order. Not hypothetical — that's exactly what the code did. Fixed to fail
+closed (`!secret || header !== secret`) in all three, with the check
+extracted into a small tested function in each (`supabase/functions/_shared/auth.ts`,
+shared by the two Deno functions; a duplicated equivalent in
+`services/menu-sync/http-server.ts`, since that's a separate Node
+deployable).
+
+### Not covered by the SQL suite
+
+Anything requiring Stripe or Expo push — those need the Deno/Node runtimes
+and real (or mocked) external APIs. `stripe-webhook`, `create-payment-intent`,
+and `refund-payment`'s actual Stripe calls are typechecked (`deno check`
+against real Stripe v22 types throughout this project) but not
+integration-tested end to end; that would need either a live Stripe test
+account or a mocking layer, neither set up here.
