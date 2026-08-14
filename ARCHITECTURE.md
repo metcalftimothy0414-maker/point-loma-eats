@@ -4,8 +4,8 @@
 
 ```
 mobile/                 Expo (React Native + TypeScript) customer + courier app, expo-router
-admin/                  Next.js admin app — Dashboard/Orders/Restaurants/Customers/
-                         Installations/Pricing/Payments/Refunds/Support/Menu Sync
+admin/                  Next.js admin app — Dashboard/Analytics/Orders/Restaurants/
+                         Customers/Installations/Pricing/Payments/Refunds/Support/Menu Sync
 supabase/migrations/    SQL migrations, applied in order, single source of truth for the schema
 supabase/functions/     Deno Edge Functions — checkout, webhook, notifications, refunds
 services/menu-sync/     Automated menu ingestion pipeline (Node, standalone deployable)
@@ -202,13 +202,11 @@ faking an integration that isn't there).
 ## Admin dashboard
 
 **Scope decision, stated up front:** the brief lists 14 admin sections.
-Built for real: Dashboard, Orders, Restaurants, Customers, Installations,
-Pricing, Payments, Refunds, Support, Menu Sync. Dropped: Analytics (already
-a distinct later phase in the roadmap — folding it in here would blur that
-boundary rather than respect it), and Incidents/Settings (the brief never
-actually defines what either would contain beyond what Support and env vars
-already cover — a placeholder page with nothing real in it seemed worse
-than an honest omission).
+Built for real: Dashboard, Analytics, Orders, Restaurants, Customers,
+Installations, Pricing, Payments, Refunds, Support, Menu Sync. Dropped:
+Incidents/Settings (the brief never actually defines what either would
+contain beyond what Support and env vars already cover — a placeholder page
+with nothing real in it seemed worse than an honest omission).
 
 ### Access model
 
@@ -277,9 +275,46 @@ and revenue/hour use wall-clock hours since midnight — a genuinely
 different, honestly-computable metric from what the courier dashboard
 deliberately omits ("hours worked," which would need real clock-in/out
 data that doesn't exist). Repeat-customer rate is lifetime, not scoped to
-today. Deeper analytics — most popular restaurant/delivery point, peak
-ordering hour, contribution margin trends, customer acquisition cost — stay
-out of this page on purpose; that's Phase 8.
+today. Deeper, range-scoped analytics are a separate page — see below.
+
+### Analytics
+
+Same computation patterns as the Dashboard (aggregate raw rows in the
+Server Component, no new SQL views), but over a `?from=&to=` date range
+instead of hardcoded to today, and with the metrics that only make sense
+across a range:
+
+- **Most popular restaurant / delivery point** — order count and (for
+  restaurants) delivered revenue, grouped in JS over the range's orders.
+- **Peak ordering hour** — bucketed in `America/Los_Angeles` explicitly
+  (`Intl.DateTimeFormat` with an explicit `timeZone`), not the server's own
+  timezone, which a Next.js deployment can't be assumed to share with Point
+  Loma. Verified directly against known UTC↔Pacific conversions across both
+  a PDT and a PST case, plus the specific edge case where midnight in
+  Pacific time formats as hour "24" rather than "0" and has to be
+  normalized — this is the one part of the page with real date-math
+  subtlety, so it's the one part checked in isolation rather than only via
+  a rendered-page smoke test.
+- **Orders/day and revenue/day** (average over the range) — deliberately
+  *not* "orders/hour" the way the Dashboard shows it; diluting a multi-day
+  range down to an hourly rate produces a confusingly small, less legible
+  number than a daily average does. The Dashboard's hourly framing is
+  specifically about "how's today going so far," which doesn't carry over
+  to a 30-day view.
+- **Contribution margin** — gross margin (`revenue − food_cost`, same as
+  the existing `orders.gross_margin` column) minus the real Stripe
+  processing fee, now that `stripe-webhook` captures it (see Edge
+  Functions below). The page shows how many of the range's delivered
+  orders actually have a captured fee, so a partial/stale figure is
+  visible as such rather than presented as complete.
+- **Customer acquisition cost — not shown.** Nothing in this system tracks
+  marketing or ad spend, so there's no real number to divide by new
+  customers. The page says this plainly rather than omitting it silently
+  or inventing a placeholder.
+- **Vehicle/gas cost — not netted into contribution margin**, for the same
+  reason: no real input for it exists anywhere in the schema, and
+  approximating one would make the headline number look more complete than
+  the underlying data actually supports.
 
 ## Menu sync
 

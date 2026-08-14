@@ -4,7 +4,7 @@ Food delivery for Navy personnel around Naval Base Point Loma who don't have a
 car: off-base restaurant → approved on-base delivery point, brought by the
 founder (sole courier for V1).
 
-## Status: Phase 7 — admin dashboard
+## Status: Phase 8 — analytics
 
 Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
 points exist as browsable/admin-managed catalog data (Phase 2). Pricing is
@@ -63,24 +63,38 @@ addition, not decided). `generic.ts` (Claude vision) is the adapter that
 actually works, and is what runs for Point Loma Eats' real target
 restaurants.
 
-`admin/` now covers Dashboard, Orders, Restaurants, Customers,
+`admin/` now covers Dashboard, Analytics, Orders, Restaurants, Customers,
 Installations, Pricing, Payments, Refunds, Support, and Menu Sync — closing
 a real gap along the way: restaurants, menu items, installations, delivery
 zones/points, and pricing previously had **no UI at all**, only direct SQL.
 Refunds now actually calls Stripe (`refund-payment`, a new Edge Function) —
 `REFUND_PENDING`/`REFUNDED` were reachable states since Phase 4 with
-nothing that issued one. Deliberately **not** built: Analytics (still its
-own later phase — see Roadmap) and Incidents/Settings (the brief never
-defines what either would contain beyond what Support and env vars already
-cover). See `ARCHITECTURE.md` for the full section-by-section design and
-scope reasoning.
+nothing that issued one. Deliberately **not** built: Incidents/Settings
+(the brief never defines what either would contain beyond what Support and
+env vars already cover). See `ARCHITECTURE.md` for the full
+section-by-section design and scope reasoning.
+
+Analytics is the Dashboard's metrics over a selectable date range instead
+of hardcoded to today, plus the ones that only make sense across a range:
+most popular restaurant/delivery point, peak ordering hour (bucketed in the
+installation's actual timezone, `America/Los_Angeles` — verified directly
+against known UTC↔Pacific conversions, including the midnight-formats-as-
+hour-"24" edge case, since that's the one part of this page with real
+date-math subtlety), and contribution margin. That last one now nets out
+the *real* Stripe processing fee — `stripe-webhook` was extended to fetch
+it via a second Stripe API call, since it isn't on the PaymentIntent object
+itself. Two figures are deliberately **not** shown rather than
+approximated: customer acquisition cost (nothing here tracks marketing/ad
+spend) and vehicle/gas cost (no real input for it exists anywhere in the
+schema) — both would produce a more confident-looking number than the data
+actually supports.
 
 ## Structure
 
 ```
 mobile/                 Expo (React Native + TypeScript) customer + courier app, expo-router
-admin/                  Next.js admin app — Dashboard, Orders, Restaurants, Customers,
-                         Installations, Pricing, Payments, Refunds, Support, Menu Sync
+admin/                  Next.js admin app — Dashboard, Analytics, Orders, Restaurants,
+                         Customers, Installations, Pricing, Payments, Refunds, Support, Menu Sync
 supabase/migrations/    SQL migrations, applied in order
 supabase/functions/     Deno Edge Functions (checkout, webhook, notifications, refunds)
 services/menu-sync/     Automated menu ingestion pipeline
@@ -91,7 +105,7 @@ services/menu-sync/     Automated menu ingestion pipeline
 1. Create a Supabase project and a Stripe account (test mode is fine).
 2. `cd mobile && cp .env.example .env` and fill in your project's URL + anon
    key (Project Settings → API) and your Stripe publishable key.
-3. Apply the migrations in `supabase/migrations/` in order (0001–0009) via
+3. Apply the migrations in `supabase/migrations/` in order (0001–0010) via
    the Supabase SQL editor, or `supabase db push` if you've linked the
    project with the Supabase CLI. `0005`/`0008` need `pg_cron`/`pg_net`
    enabled on your project (Database → Extensions).
@@ -126,11 +140,6 @@ customer side.
 
 ## Roadmap
 
-Phase 8: deeper analytics (most popular restaurant/delivery point, peak
-ordering hour, contribution margin trends, customer acquisition cost — the
-Dashboard already covers today's orders/revenue/avg order value/avg tip/
-cancellations, avg delivery time, orders & revenue per hour, repeat-customer
-rate).
 Phase 9: tests, security pass, polish.
 
 Full spec lives in the project's CLAUDE.md-equivalent brief; this README

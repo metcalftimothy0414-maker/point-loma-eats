@@ -12,7 +12,12 @@ Deno. See `../../ARCHITECTURE.md` for the checkout flow these are part of.
   `payment_intent.payment_failed`, cancels it. Idempotent against Stripe's
   own webhook retries (checks the recorded payment status before
   re-transitioning, since e.g. `PAID -> PAID` isn't a valid transition and
-  would otherwise throw on a replayed event).
+  would otherwise throw on a replayed event). Also captures the real
+  Stripe processing fee (`payments.processing_fee`) via a second API call —
+  it isn't on the PaymentIntent object itself, only on the underlying
+  charge's balance transaction — for analytics' contribution-margin
+  calculation. Failure to fetch it is non-fatal; doesn't block the order
+  being marked paid.
 - `send-order-notification/` — called by the `order_status_history_notify`
   Postgres trigger (`0008_live_tracking_notifications.sql`) via `pg_net` on
   every order status change, not by Stripe or a client. Decides who (if
