@@ -1,4 +1,5 @@
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { useCart } from '../../lib/cart';
 
 export default function Cart() {
@@ -45,8 +46,8 @@ export default function Cart() {
 
       <View style={styles.footer}>
         <Text style={styles.subtotal}>Subtotal: ${subtotal.toFixed(2)}</Text>
-        <Pressable style={styles.checkoutButton} disabled>
-          <Text style={styles.checkoutButtonText}>Checkout — coming soon</Text>
+        <Pressable style={styles.checkoutButton} onPress={() => router.push('/checkout')}>
+          <Text style={styles.checkoutButtonText}>Checkout</Text>
         </Pressable>
         <Pressable onPress={clear}>
           <Text style={styles.clearLink}>Clear cart</Text>
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
   qty: { fontSize: 15, fontWeight: '600', minWidth: 16, textAlign: 'center' },
   footer: { paddingTop: 16, borderTopWidth: 1, borderTopColor: '#eee' },
   subtotal: { fontSize: 18, fontWeight: '700', marginBottom: 12 },
-  checkoutButton: { backgroundColor: '#ccc', borderRadius: 10, padding: 14, alignItems: 'center' },
-  checkoutButtonText: { color: '#666', fontSize: 16, fontWeight: '600' },
+  checkoutButton: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' },
+  checkoutButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   clearLink: { textAlign: 'center', color: '#c0392b', marginTop: 12 },
 });

@@ -22,6 +22,13 @@ alter table orders
   add column subtotal numeric not null default 0 check (subtotal >= 0),
   add column tip_amount numeric not null default 0 check (tip_amount >= 0);
 
+-- 0003's column-level GRANT on orders enumerated specific columns; a new
+-- column doesn't inherit that automatically, so without this, subtotal and
+-- tip_amount (unlike food_cost/gross_margin, not margin-sensitive — this
+-- is literally what the customer is being charged) would be invisible to
+-- the client that's supposed to see its own order total.
+grant select (subtotal, tip_amount) on orders to anon, authenticated;
+
 -- order_items: a price/name SNAPSHOT at order time. menu_items.display_price
 -- can change after the order is placed (manual edit, resync) — orders must
 -- never re-derive what was charged from current catalog state.

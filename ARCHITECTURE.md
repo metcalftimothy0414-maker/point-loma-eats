@@ -6,14 +6,17 @@
 mobile/                 Expo (React Native + TypeScript) customer app, expo-router
 admin/                  Next.js admin app — currently just the Menu Sync section
 supabase/migrations/    SQL migrations, applied in order, single source of truth for the schema
+supabase/functions/     Deno Edge Functions — Stripe checkout + webhook only so far
 services/menu-sync/     Automated menu ingestion pipeline (Node, standalone deployable)
 ```
 
-Backend is Supabase end to end — Postgres + Auth + RLS + Realtime. No
-separate API server for the customer/courier apps; `services/menu-sync` is
-the one piece of backend logic that lives outside Postgres, because it
-needs to make outbound HTTP calls (restaurant sites, Google Places, the
-Claude API) that don't belong inside a database function.
+Backend is Supabase end to end — Postgres + Auth + RLS + Realtime, plus Edge
+Functions for the two things Postgres genuinely can't do itself: calling
+Stripe, and verifying Stripe's webhook signature. No separate API server for
+the customer/courier apps. `services/menu-sync` is the one piece of backend
+logic that lives fully outside Supabase, because it needs to make outbound
+HTTP calls (restaurant sites, Google Places, the Claude API) on a nightly
+schedule, not in response to a request.
 
 Security model throughout: RLS denies by default, an `is_admin()` helper
 (checks `profiles.role`) gates admin policies, and anything that would leak
@@ -21,6 +24,87 @@ margin (`pricing_settings`, `menu_items.base_price`, `orders.food_cost`/
 `gross_margin`) is additionally locked down via column-level `REVOKE`/
 `GRANT` or has no RLS policy granting client access at all — see comments
 in the migrations for the specifics and reasoning per table.
+
+## Checkout & order state machine
+
+**Goal:** a customer can pay once and have that produce exactly one order in
+exactly one place, with a total the client never got to dictate, and a
+status that only moves through legal transitions made by whoever's actually
+allowed to make them.
+
+### Pricing at checkout
+
+No delivery or service fee line items in this model — the customer pays
+`sum(display_price * quantity)` plus an optional tip. `display_price`
+already has the markup baked in (see `0003_pricing_catalog_orders.sql`), so
+checkout math is just summing what's already on the menu.
+
+### Flow
+
+```
+Client (mobile)                Edge Function                    Postgres                 Stripe
+  |  cart -> checkout screen        |                               |                       |
+  |  invoke create-payment-intent ->|                               |                       |
+  |                                 |-- create_order() (user JWT) ->|                       |
+  |                                 |<---- order_id, customer_total-|                       |
+  |                                 |-- create PaymentIntent ---------------------------->  |
+  |                                 |<----------------------------------- client_secret --  |
+  |                                 |-- insert payments row (service role) --------------->|
+  |                                 |-- transition_order_status(PAYMENT_PENDING) --------->|
+  |  <---- client_secret -----------|                               |                       |
+  |  present Stripe PaymentSheet                                    |                       |
+  |  (card entry happens entirely inside Stripe's SDK — this app never sees card details)   |
+  |                                 |                               |         webhook <------|  payment_intent.succeeded
+  |                                 |         stripe-webhook: verify signature, then:        |
+  |                                 |         transition_order_status(PAID)                  |
+  |                                 |         confirm_and_assign_order() -> CONFIRMED,        |
+  |                                 |         then COURIER_ASSIGNED if a courier exists       |
+```
+
+`create_order()` (SQL function, `SECURITY DEFINER`) is the only path that
+creates an order:
+- Re-looks-up every item's price from `menu_items` server-side — the client
+  sends `menu_item_id`/`quantity` pairs, never a price.
+- Enforces `minimum_subtotal` from `current_pricing_settings()`, which the
+  client can't read directly (see the Menu sync section below for why that
+  function is locked down).
+- Snapshots `name`/`unit_price` into `order_items` at order time —
+  `menu_items.display_price` can change later (manual edit, a menu sync
+  run), and an order must never silently re-price itself against current
+  catalog state.
+- Fully atomic: any failure (empty cart, negative tip, unavailable item,
+  wrong restaurant, below minimum) rolls back the entire attempt, including
+  the order row itself. Never a half-created order.
+
+`transition_order_status()` is the only path that changes `orders.status`.
+Every call is checked against a fixed transition graph
+(`is_valid_order_transition`) *and* against who's allowed to make that
+specific transition:
+
+| Transition target | Who |
+|---|---|
+| `CANCELLED` | the order's own customer, or admin |
+| `COURIER_ACCEPTED` … `DELIVERED` | the order's assigned courier, or admin |
+| everything else (`PAYMENT_PENDING`, `PAID`, `CONFIRMED`, `COURIER_ASSIGNED`, `REFUND_PENDING`, `REFUNDED`, `DISPUTED`) | admin or the service role only |
+
+That last row is what makes the webhook the only thing that can ever mark
+an order `PAID` — a client claiming success on its own is never sufficient.
+
+`confirm_and_assign_order()` runs after `PAID`: transitions to `CONFIRMED`
+(there's no restaurant POS integration to make that a real separate human
+step yet), then looks up the sole active courier (V1 has exactly one — the
+founder) and transitions to `COURIER_ASSIGNED` if one exists. If no courier
+row exists yet (founder hasn't been promoted per the README), it stops at
+`CONFIRMED` rather than failing the payment webhook over it.
+
+**Not built:** the founder courier dashboard (Phase 5) — the automated flow
+stops at `COURIER_ASSIGNED`; accepting and advancing through the delivery
+states needs a UI that doesn't exist yet, even though the state machine and
+authorization already support it. Live order tracking (Phase 6) — the
+customer-facing order screen is point-in-time, not realtime-subscribed.
+Refund execution (Stripe refund API call) — `REFUND_PENDING`/`REFUNDED` are
+real reachable states, but nothing currently calls Stripe to actually issue
+one.
 
 ## Menu sync
 
