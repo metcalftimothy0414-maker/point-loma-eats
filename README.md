@@ -6,6 +6,26 @@ founder (sole courier for V1).
 
 ## Status: Phase 9 — tests, security pass, polish
 
+**Live infra, as of 2026-08-13:** Supabase project `cqypxflyukzjqsgghccf`
+(US East, Ohio) has all 11 migrations applied and all four Edge Functions
+deployed. Stripe is wired up in **test mode** on a shared account (a
+previously separate, now-retired business's Stripe account, reused here
+per founder decision) — `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are set
+as Supabase secrets, a test-mode webhook endpoint is registered for
+`payment_intent.succeeded`/`payment_intent.payment_failed`, and
+`mobile/.env`'s publishable key is real. One piece of the deploy checklist
+in this file's step 4 is **not yet done**: pointing the DB trigger at
+`send-order-notification` (the `alter database ... set app.settings.*`
+commands) failed with `permission denied to set parameter` — Supabase
+blocks arbitrary custom Postgres GUCs at the database/role level even for
+the `postgres` role, apparently as a hardening measure. That needs to be
+set via the Supabase Dashboard (Project Settings → Database → Custom
+Postgres config) instead of SQL; not done yet, so order-status push
+notifications won't actually fire until it is (in-app/pull-to-refresh
+still works). Going **live-mode** for real money needs new Stripe
+live-mode keys pointed at a real webhook, and swapping the test values out
+— not done, since this is still pre-launch.
+
 Sign-up/sign-in works (Phase 1). Installations → delivery zones → delivery
 points exist as browsable/admin-managed catalog data (Phase 2). Pricing is
 markup-based (`pricing_settings`: `markup_pct`/`minimum_subtotal`/
