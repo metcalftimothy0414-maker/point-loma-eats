@@ -47,3 +47,128 @@ a {
     color-scheme: dark;
   }
 }
+
+/* Shared admin-app utility classes — plain and functional, this is an
+   internal tool for one founder, not customer-facing. Added here rather
+   than repeating the same inline styles across 9+ pages. */
+
+.admin-main {
+  font-family: system-ui, sans-serif;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 14px;
+}
+
+.admin-nav a {
+  color: #666;
+}
+
+.admin-nav a:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-table th {
+  text-align: left;
+  border-bottom: 1px solid #ccc;
+  padding: 6px 8px 6px 0;
+}
+
+.admin-table td {
+  border-bottom: 1px solid #eee;
+  padding: 8px 8px 8px 0;
+  vertical-align: top;
+}
+
+.admin-section {
+  margin-top: 32px;
+}
+
+.admin-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.admin-stat-box {
+  flex: 1;
+  min-width: 120px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.admin-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.admin-stat-label {
+  font-size: 12px;
+  color: #666;
+}
+
+.admin-btn {
+  display: inline-block;
+  background: #111;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.admin-btn-danger {
+  background: #c0392b;
+}
+
+.admin-btn-secondary {
+  background: #fff;
+  color: #111;
+  border: 1px solid #ccc;
+}
+
+.admin-input,
+.admin-select,
+.admin-textarea {
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.admin-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.admin-error {
+  color: #c0392b;
+  font-size: 13px;
+}
+
+.admin-muted {
+  color: #666;
+  font-size: 13px;
+}
